@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#define MAX_FILES 100
+#define MAX_FILES 50
 
 void print_file_info(const char* path, bool show_size, bool show_time, bool show_rights) {
     struct stat file_stat;

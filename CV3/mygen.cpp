@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Usage: %s N L\n", argv[0]);
         return 1;
     }
-
+    int line = 0;
     int N = atoi(argv[1]);  // Number of numbers per line
     int L = atoi(argv[2]);  // Number of lines per minute
 
@@ -35,9 +35,11 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, handle_sigint);
 
     while (running) {
+        printf("%d: ", line);
         for (int i = 0; i < N; ++i) {
             printf("%d ", rand() % 1000);  //  <0 ; 999>
         }
+        line++;
         printf("\n");
         fflush(stdout);  // Ensure the output is written to the file immediately
         usleep(sleep_time);  // Sleep for calculated microseconds between lines
