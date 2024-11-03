@@ -1,0 +1,10 @@
+1
+Makefile
+socket_cl
+socket_cl.cpp
+socket_cl.log
+socket_cl.o
+socket_srv
+socket_srv.cpp
+socket_srv.o
+[H[2J[3J

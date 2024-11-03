@@ -137,7 +137,7 @@ int main(int t_narg, char **t_args)
     if (!log_file_name)
     {
         // Use program name with .log extension
-        char *prog_name = strrchr(t_args[0], '/');
+        char *prog_name = strrchr(t_args[0], '/');  // Returns pointer to last '/' in string
         if (prog_name)
             prog_name++; // Skip '/'
         else
@@ -228,13 +228,16 @@ int main(int t_narg, char **t_args)
         {
             // read from stdin
             int l_len = read(STDIN_FILENO, l_buf, sizeof(l_buf));
+
             if (l_len < 0)
                 log_msg(LOG_ERROR, "Unable to read from stdin.");
             else
                 log_msg(LOG_DEBUG, "Read %d bytes from stdin.", l_len);
 
+
             // send data to server
             l_len = write(l_sock_server, l_buf, l_len);
+
             if (l_len < 0)
                 log_msg(LOG_ERROR, "Unable to send data to server.");
             else
@@ -246,6 +249,7 @@ int main(int t_narg, char **t_args)
         {
             // read data from server
             int l_len = read(l_sock_server, l_buf, sizeof(l_buf));
+
             if (!l_len)
             {
                 log_msg(LOG_DEBUG, "Server closed socket.");
@@ -261,11 +265,13 @@ int main(int t_narg, char **t_args)
 
             // display on stdout
             int write_len = write(STDOUT_FILENO, l_buf, l_len);
+
             if (write_len < 0)
                 log_msg(LOG_ERROR, "Unable to write to stdout.");
 
             // write to log file
             int log_write_len = fwrite(l_buf, 1, l_len, log_file);
+            
             if (log_write_len != l_len)
             {
                 log_msg(LOG_ERROR, "Unable to write to log file.");

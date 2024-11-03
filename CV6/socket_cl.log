@@ -1,0 +1,12 @@
+Error: Command execution failed
+Error: Command execution failed
+Error: Command execution failed
+1
+Makefile
+socket_cl
+socket_cl.cpp
+socket_cl.log
+socket_cl.o
+socket_srv
+socket_srv.cpp
+socket_srv.o

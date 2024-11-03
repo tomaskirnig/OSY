@@ -103,7 +103,7 @@ void handle_client(int l_sock_client)
             }
 
             // Check for "close" command
-            if (!strncasecmp(l_buf, STR_CLOSE, strlen(STR_CLOSE)))
+            if (!strncasecmp(l_buf, STR_CLOSE, strlen(STR_CLOSE)))  // Case-insensitive comparison
             {
                 log_msg(LOG_INFO, "Client sent 'close' request to close connection.");
                 close(l_sock_client);
@@ -111,13 +111,13 @@ void handle_client(int l_sock_client)
             }
 
             // Split the command into arguments
-            char *args[64];
+            char *args[16];
             int argc = 0;
             char *token = strtok(l_buf, " ");
-            while (token != NULL && argc < 63)
+            while (token != NULL && argc < 15)
             {
                 args[argc++] = token;
-                token = strtok(NULL, " ");
+                token = strtok(NULL, " "); // Get next token
             }
             args[argc] = NULL; // Null-terminate the arguments array
 
@@ -139,7 +139,7 @@ void handle_client(int l_sock_client)
                 // Redirect stdout to the client socket
                 dup2(l_sock_client, STDOUT_FILENO);
                 dup2(l_sock_client, STDERR_FILENO);
-                // Close unused file descriptors
+
                 close(l_sock_client);
 
                 // Execute the command
@@ -151,18 +151,7 @@ void handle_client(int l_sock_client)
             }
             else
             {
-                // Parent process
-                // Wait for the command to complete
-                int status;
-                waitpid(pid, &status, 0);
-                if (WIFEXITED(status))
-                {
-                    log_msg(LOG_DEBUG, "Command executed with exit status %d", WEXITSTATUS(status));
-                }
-                else
-                {
-                    log_msg(LOG_DEBUG, "Command terminated abnormally");
-                }
+                wait(NULL);
             }
         }
     }
