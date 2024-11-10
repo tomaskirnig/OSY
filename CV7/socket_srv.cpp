@@ -14,15 +14,21 @@
 #include <mutex>
 #include <algorithm>
 
+struct ClientInfo {
+    int socket;
+    char* username;
+};
+
 #define NUM_OF_CLIENTS 20
 #define BUFFER_SIZE 256
 
-#define STR_CLOSE "close"
-#define STR_QUIT "quit"
+#define STR_CLOSE "#close"
+#define STR_QUIT "#close"
+#define STR_LIST "#list"
 
 // Shared list of client sockets and mutex for synchronization
-std::vector<int> client_sockets;
-pthread_mutex_t lock; 
+std::vector<ClientInfo> client_sockets;
+pthread_mutex_t lock;
 
 //***************************************************************************
 // log messages
@@ -32,8 +38,7 @@ pthread_mutex_t lock;
 
 int g_debug = LOG_INFO;
 
-void log_msg(int t_log_level, const char *t_form, ...)
-{
+void log_msg(int t_log_level, const char *t_form, ...) {
     const char *out_fmt[] = {
         "ERR: (%d-%s) %s\n",
         "INF: %s\n",
@@ -45,8 +50,7 @@ void log_msg(int t_log_level, const char *t_form, ...)
     va_start(l_arg, t_form);
     vsprintf(l_buf, t_form, l_arg);
     va_end(l_arg);
-    switch (t_log_level)
-    {
+    switch (t_log_level) {
     case LOG_INFO:
     case LOG_DEBUG:
         fprintf(stdout, out_fmt[t_log_level], l_buf);
@@ -57,55 +61,11 @@ void log_msg(int t_log_level, const char *t_form, ...)
     }
 }
 
-// Function to evaluate expression with '+' and '-' operations
-int evaluate_expression(const char *expr, int *result)
-{
-    int value = 0;
-    int num = 0;
-    int sign = 1; // 1 for '+', -1 for '-'
-    const char *p = expr;
-    while (*p != '\0' && *p != '\n')
-    {
-        if (*p == ' ')
-        {
-            // Skip spaces
-            p++;
-        }
-        else if (*p >= '0' && *p <= '9')
-        {
-            num = 0;
-            while (*p >= '0' && *p <= '9')
-            {
-                num = num * 10 + (*p - '0');
-                p++;
-            }
-            value += sign * num;
-        }
-        else if (*p == '+')
-        {
-            sign = 1;
-            p++;
-        }
-        else if (*p == '-')
-        {
-            sign = -1;
-            p++;
-        }
-        else
-        {
-            // Invalid character
-            return -1;
-        }
-    }
-    *result = value;
-    return 0;
-}
-
 // Broadcast message to all connected clients
 void broadcast_to_clients(const char *message) {
     pthread_mutex_lock(&lock);
-    for (int client_sock : client_sockets) {
-        write(client_sock, message, strlen(message));
+    for (const ClientInfo& client : client_sockets) {
+        write(client.socket, message, strlen(message));
     }
     pthread_mutex_unlock(&lock);
 }
@@ -113,36 +73,75 @@ void broadcast_to_clients(const char *message) {
 // Handle client communication
 void* handle_client(void *client_socket_ptr) {
     int client_socket = *(int*)client_socket_ptr;
-    free(client_socket_ptr);  // Free dynamically allocated memory
+    free(client_socket_ptr);
     char buffer[BUFFER_SIZE];
+
+    // Find the client info in the vector
+    ClientInfo* client_info = nullptr;
+    pthread_mutex_lock(&lock);
+    for (ClientInfo& client : client_sockets) {
+        if (client.socket == client_socket) {
+            client_info = &client;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&lock);
+
+    if (!client_info) {
+        log_msg(LOG_ERROR, "Client info not found for socket %d", client_socket);
+        close(client_socket);
+        return nullptr;
+    }
 
     while (1) {
         int len = read(client_socket, buffer, BUFFER_SIZE - 1);
         if (len <= 0) {
-            log_msg(1, "Client disconnected.");
+            log_msg(LOG_INFO, "Client '%s' disconnected.", client_info->username);
             break;
         }
-        buffer[len - 1] = '\0';  // Null-terminate the received string
+        buffer[len] = '\0';
 
-        // log_msg(1, "Received: %s", buffer);
+        // Remove trailing newline or return 
+        if (len > 0 && (buffer[len - 1] == '\n')) {
+            buffer[len - 1] = '\0';
+        }
 
-        int result;
-        if (evaluate_expression(buffer, &result) == 0) {
-            char response[BUFFER_SIZE];
-            snprintf(response, sizeof(response), "%s = %d\n", buffer, result);
-            broadcast_to_clients(response);
-        } else {
-            const char *error_msg = "Error: Invalid expression\n";
-            write(client_socket, error_msg, strlen(error_msg));
+        log_msg(LOG_INFO, "Received message from '%s': %s", client_info->username, buffer);
+
+        if (strncmp(STR_LIST, buffer, strlen(STR_LIST)) == 0) {
+            pthread_mutex_lock(&lock);
+            for (const ClientInfo& client : client_sockets) {
+                char msg[BUFFER_SIZE];
+                snprintf(msg, BUFFER_SIZE, "Client: %s\n", client.username);
+                write(client_socket, msg, strlen(msg));
+            }
+            pthread_mutex_unlock(&lock);
+        }else if (strncmp("#", buffer, 1) == 0) {
+            pthread_mutex_lock(&lock); 
+            for (ClientInfo& client : client_sockets) {
+                if (strncmp(buffer + 1, client.username, strlen(client.username)) == 0) {
+                    char msg[BUFFER_SIZE];
+                    snprintf(msg, BUFFER_SIZE, "%s: %s\n", client_info->username, buffer + strlen(client.username) + 1);
+                    write(client.socket, msg, strlen(msg));
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&lock);
+        }else {
+            char msg[BUFFER_SIZE];
+            snprintf(msg, BUFFER_SIZE, "%s: %s\n", client_info->username, buffer);
+            broadcast_to_clients(msg);
         }
     }
 
-    // Remove client from the list upon disconnection
     pthread_mutex_lock(&lock);
-    auto it = std::remove(client_sockets.begin(), client_sockets.end(), client_socket);
-    client_sockets.erase(it, client_sockets.end());
+    auto it = std::find_if(client_sockets.begin(), client_sockets.end(),
+                        [client_socket](const ClientInfo& client) { return client.socket == client_socket; });
+    if (it != client_sockets.end()) {
+        free(it->username);
+        client_sockets.erase(it);
+    }
     pthread_mutex_unlock(&lock);
-
     close(client_socket);
     return nullptr;
 }
@@ -177,7 +176,6 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Enable port reusability
     int opt = 1;
     if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("Failed to set SO_REUSEADDR");
@@ -185,28 +183,22 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    log_msg(1, "Server will listen on port: %d", port);
+    log_msg(LOG_INFO, "Server will listen on port: %d", port);
+    pthread_mutex_init(&lock, nullptr);
 
-    pthread_mutex_init(&lock, 0);
-
-    // Setting up poll to monitor both stdin and the socket
     struct pollfd fds[2];
     fds[0].fd = server_socket;
     fds[0].events = POLLIN;
     fds[1].fd = STDIN_FILENO;
     fds[1].events = POLLIN;
 
-    char l_buf[BUFFER_SIZE];
-
     while (1) {
-        int poll_res = poll(fds, 2, -1); // Wait indefinitely for an event
-
+        int poll_res = poll(fds, 2, -1);
         if (poll_res < 0) {
             perror("Poll error");
             break;
         }
 
-        // Check for incoming client connections
         if (fds[0].revents & POLLIN) {
             struct sockaddr_in client_addr;
             socklen_t client_len = sizeof(client_addr);
@@ -216,14 +208,23 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            printf("Client connected: %s:%d\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+            write(client_socket, "Enter a username: ", sizeof("Enter a username: "));
+            char buffer[BUFFER_SIZE];
+            int len = read(client_socket, buffer, BUFFER_SIZE - 1);
+            if (len <= 0) {
+                log_msg(LOG_INFO, "Client disconnected.");
+                close(client_socket);
+                continue;
+            }
+            buffer[len - 1] = '\0';
 
-            // Add client socket to the list
+            ClientInfo client = {client_socket, strdup(buffer)};
             pthread_mutex_lock(&lock);
-            client_sockets.push_back(client_socket);
+            client_sockets.push_back(client);
             pthread_mutex_unlock(&lock);
 
-            // Create a thread for the new client
+            log_msg(LOG_INFO, "Client '%s' connected.\nOn port %d", buffer, ntohs(client_addr.sin_port));
+
             int *client_sock_ptr = (int*)malloc(sizeof(int));
             *client_sock_ptr = client_socket;
 
@@ -237,30 +238,34 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Check for input from stdin
         if (fds[1].revents & POLLIN) {
             char buffer[BUFFER_SIZE];
             int len = read(STDIN_FILENO, buffer, sizeof(buffer) - 1);
             if (len > 0) {
                 buffer[len] = '\0';
-
-                // Check if the input is "quit"
                 if (strncmp(buffer, STR_QUIT, strlen(STR_QUIT)) == 0) {
                     printf("Quit command received. Shutting down server...\n");
                     break;
+                }else if (strncmp(buffer, STR_LIST, strlen(STR_LIST)) == 0) {
+                    pthread_mutex_lock(&lock);
+                    for (const ClientInfo& client : client_sockets) {
+                        printf("Client: %s\n", client.username);
+                    }
+                    pthread_mutex_unlock(&lock);
                 }
             }
         }
     }
 
-    // Close all client sockets and the server socket
     pthread_mutex_lock(&lock);
-    for (int client_socket : client_sockets) {
-        close(client_socket);
+    for (ClientInfo& client : client_sockets) {
+        free(client.username);
+        close(client.socket);
     }
     client_sockets.clear();
     pthread_mutex_unlock(&lock);
 
     close(server_socket);
+    pthread_mutex_destroy(&lock);
     return 0;
 }
