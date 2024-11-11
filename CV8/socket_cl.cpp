@@ -38,6 +38,8 @@
 #define LOG_INFO                1       // information and notifications
 #define LOG_DEBUG               2       // debug messages
 
+#define BUFFER_SIZE             1024
+
 // debug flag
 int g_debug = LOG_INFO;
 
@@ -50,7 +52,7 @@ void log_msg( int t_log_level, const char *t_form, ... )
 
     if ( t_log_level && t_log_level > g_debug ) return;
 
-    char l_buf[ 1024 ];
+    char l_buf[ BUFFER_SIZE ];
     va_list l_arg;
     va_start( l_arg, t_form );
     vsprintf( l_buf, t_form, l_arg );
@@ -173,6 +175,14 @@ int main( int t_narg, char **t_args )
 
     log_msg( LOG_INFO, "Enter 'close' to close application." );
 
+    // Open a file to save the received image
+    FILE *image_file = fopen("received_image.jpg", "wb");
+    if (!image_file) {
+        log_msg(LOG_ERROR, "Unable to open file to save image.");
+        close(l_sock_server);
+        exit(1);
+    }
+
     // list of fd sources
     pollfd l_read_poll[ 2 ];
 
@@ -184,7 +194,7 @@ int main( int t_narg, char **t_args )
     // go!
     while ( 1 )
     {
-        char l_buf[ 128 ];
+        char l_buf[ 256 ];
 
         // select from fds
         if ( poll( l_read_poll, 2, -1 ) < 0 ) break;
@@ -225,10 +235,14 @@ int main( int t_narg, char **t_args )
             else
                 log_msg( LOG_DEBUG, "Read %d bytes from server.", l_len );
 
-            // display on stdout
-            l_len = write( STDOUT_FILENO, l_buf, l_len );
-            if ( l_len < 0 )
-                log_msg( LOG_ERROR, "Unable to write to stdout." );
+            // Write the data received from server to file
+            size_t write_len = fwrite(l_buf, 1, l_len, image_file);
+            if (write_len < l_len) {
+                log_msg(LOG_ERROR, "Failed to write data to file.");
+                break;
+            }
+
+            log_msg(LOG_INFO, "Received %d bytes from server.", l_len);
 
             // request to close?
             if ( !strncasecmp( l_buf, STR_CLOSE, strlen( STR_CLOSE ) ) )
@@ -239,8 +253,9 @@ int main( int t_narg, char **t_args )
         }
     }
 
-    // close socket
+    fclose(image_file);
     close( l_sock_server );
+    log_msg(LOG_INFO, "Image saved as 'received_image.jpg' and connection closed.");
 
     return 0;
   }
